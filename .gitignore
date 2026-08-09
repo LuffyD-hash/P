@@ -1,0 +1,49 @@
+# Segredos e configuracoes locais
+.env
+.env.*
+!.env.example
+discord_config.json
+**/discord_config.json
+
+# Dados gerados pela versao local
+painel-dados.json
+precos-dados.json
+uploads/
+
+# Pesquisa e resultados locais/Discord
+arquivos/
+resultados_discord/
+
+# Caches e ambientes Python
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+
+# Temporarios, logs e copias locais
+*.log
+*.tmp
+*.temp
+*.bak
+*.backup
+*.backup.*
+*.old
+*~
+tmp/
+temp/
+
+# Versoes legadas
+__antigos_standalone/
+panel_server.py
+*.bat
+
+# Arquivos do sistema e editor
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+.vscode/

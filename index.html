@@ -1,0 +1,470 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Painel compartilhado de assuntos, valores, tabelas TXT e informações.">
+  <meta name="color-scheme" content="dark">
+  <meta name="referrer" content="strict-origin-when-cross-origin">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self'; img-src 'self' data:; connect-src 'self' https://*.supabase.co wss://*.supabase.co; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; upgrade-insecure-requests">
+  <title>Painel compartilhado</title>
+  <link rel="stylesheet" href="./styles.css">
+  <script src="./supabase-config.js" defer></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.106.2" defer></script>
+  <script src="./info.js" defer></script>
+  <script src="./app.js" defer></script>
+</head>
+<body>
+  <noscript>
+    <div class="noscript">Este painel precisa de JavaScript habilitado.</div>
+  </noscript>
+
+  <div class="page-glow page-glow-one" aria-hidden="true"></div>
+  <div class="page-glow page-glow-two" aria-hidden="true"></div>
+
+  <main id="bootView" class="center-shell" aria-live="polite">
+    <section class="auth-card boot-card">
+      <div class="brand-mark" aria-hidden="true">DD</div>
+      <p class="eyebrow">Painel compartilhado</p>
+      <h1>Preparando seus dados</h1>
+      <p class="muted">Conectando com segurança ao Supabase…</p>
+      <div class="loader" aria-hidden="true"></div>
+    </section>
+  </main>
+
+  <main id="setupView" class="center-shell" hidden>
+    <section class="auth-card setup-card">
+      <div class="brand-mark" aria-hidden="true">DD</div>
+      <p class="eyebrow">Configuração necessária</p>
+      <h1>Conecte este painel ao Supabase</h1>
+      <p class="muted">Preencha a URL e a chave pública em <code>supabase-config.js</code>. Nunca use uma chave secreta ou <code>service_role</code> neste site.</p>
+      <ol class="setup-steps">
+        <li>Execute a migration SQL da pasta <code>supabase/migrations</code>.</li>
+        <li>Crie pelo menos um usuário em Authentication.</li>
+        <li>Informe a URL e a chave <code>sb_publishable_…</code> no arquivo de configuração.</li>
+      </ol>
+      <p id="setupError" class="form-message error" role="alert"></p>
+    </section>
+  </main>
+
+  <main id="loginView" class="center-shell" hidden>
+    <section class="auth-card">
+      <div class="brand-row">
+        <div class="brand-mark" aria-hidden="true">DD</div>
+        <div>
+          <p class="eyebrow">Painel compartilhado</p>
+          <p class="brand-subtitle">Assuntos, itens e valores em um só lugar</p>
+        </div>
+      </div>
+
+      <div class="auth-copy">
+        <h1>Bem-vindo de volta</h1>
+        <p class="muted">Entre com o usuário criado no Supabase.</p>
+      </div>
+
+      <form id="loginForm" class="stack-form" novalidate>
+        <label>
+          <span>E-mail</span>
+          <input id="emailInput" type="email" autocomplete="username" placeholder="voce@exemplo.com" required>
+        </label>
+        <label>
+          <span>Senha</span>
+          <input id="passwordInput" type="password" autocomplete="current-password" placeholder="Sua senha" required minlength="6">
+        </label>
+        <button id="loginButton" class="button button-primary button-wide" type="submit">Entrar</button>
+        <p id="loginMessage" class="form-message" role="alert"></p>
+      </form>
+    </section>
+  </main>
+
+  <div id="appView" class="app-shell" hidden>
+    <header class="topbar">
+      <a id="homeLink" class="brand-link" href="./" aria-label="Início do painel">
+        <span class="brand-mark brand-mark-small" aria-hidden="true">DD</span>
+        <span>
+          <strong>Painel compartilhado</strong>
+          <small>Itens, valores, contas e informações</small>
+        </span>
+      </a>
+
+      <nav class="workspace-tabs" role="tablist" aria-label="Áreas do painel">
+        <button
+          id="pricesTab"
+          class="workspace-tab is-active"
+          type="button"
+          role="tab"
+          aria-selected="true"
+          aria-controls="pricesWorkspace"
+        >Preços</button>
+        <button
+          id="txtTab"
+          class="workspace-tab"
+          type="button"
+          role="tab"
+          aria-selected="false"
+          aria-controls="txtWorkspace"
+          tabindex="-1"
+        >Contas TXT</button>
+        <button
+          id="infoTab"
+          class="workspace-tab"
+          type="button"
+          role="tab"
+          aria-selected="false"
+          aria-controls="infoWorkspace"
+          tabindex="-1"
+        >Info</button>
+      </nav>
+
+      <div class="topbar-actions">
+        <span id="syncBadge" class="status-badge" data-state="loading">
+          <span class="status-dot" aria-hidden="true"></span>
+          <span id="syncText">Sincronizando</span>
+        </span>
+        <span id="userEmail" class="user-email"></span>
+        <button id="logoutButton" class="button button-ghost button-small" type="button">Sair</button>
+      </div>
+    </header>
+
+    <div id="pricesWorkspace" class="workspace workspace-view" role="tabpanel" aria-labelledby="pricesTab">
+      <aside class="sidebar" aria-label="Assuntos">
+        <div class="sidebar-heading">
+          <div>
+            <p class="eyebrow">Organização</p>
+            <h2>Assuntos</h2>
+          </div>
+          <span id="subjectCount" class="count-pill">0</span>
+        </div>
+
+        <form id="subjectForm" class="quick-form" autocomplete="off">
+          <label class="sr-only" for="subjectNameInput">Nome do novo assunto</label>
+          <input id="subjectNameInput" type="text" maxlength="80" placeholder="Novo assunto" required>
+          <button class="icon-button" type="submit" aria-label="Adicionar assunto" title="Adicionar assunto">+</button>
+        </form>
+
+        <label class="search-field sidebar-search">
+          <span aria-hidden="true">⌕</span>
+          <span class="sr-only">Filtrar assuntos</span>
+          <input id="subjectSearchInput" type="search" placeholder="Filtrar assuntos">
+        </label>
+
+        <div id="subjectList" class="subject-list"></div>
+        <div id="subjectEmpty" class="sidebar-empty" hidden>
+          <p>Nenhum assunto ainda.</p>
+          <small>Crie o primeiro acima.</small>
+        </div>
+      </aside>
+
+      <section class="content-panel">
+        <div id="noSubjectView" class="empty-state" hidden>
+          <div class="empty-symbol" aria-hidden="true">+</div>
+          <p class="eyebrow">Comece por aqui</p>
+          <h1>Crie seu primeiro assunto</h1>
+          <p class="muted">Depois você poderá adicionar itens com nome e valor.</p>
+          <button id="focusSubjectButton" class="button button-primary" type="button">Criar assunto</button>
+        </div>
+
+        <div id="subjectView" hidden>
+          <div class="content-header">
+            <div>
+              <p class="eyebrow">Assunto atual</p>
+              <div class="title-row">
+                <h1 id="activeSubjectName">—</h1>
+                <button id="renameSubjectButton" class="text-button" type="button">Renomear</button>
+              </div>
+              <p class="muted"><span id="itemCount">0</span> <span id="itemCountLabel">itens</span> salvos</p>
+            </div>
+            <div class="content-actions">
+              <button id="exportButton" class="button button-secondary" type="button">Exportar JSON</button>
+              <button id="refreshButton" class="button button-secondary" type="button">Atualizar</button>
+              <button id="deleteSubjectButton" class="button button-danger-soft" type="button">Excluir assunto</button>
+            </div>
+          </div>
+
+          <section class="add-card" aria-labelledby="addItemTitle">
+            <div class="add-card-copy">
+              <p class="eyebrow">Novo registro</p>
+              <h2 id="addItemTitle">Adicionar item</h2>
+            </div>
+            <form id="itemForm" class="item-form" autocomplete="off">
+              <label>
+                <span>Nome do item</span>
+                <input id="itemNameInput" type="text" maxlength="160" placeholder="Ex.: Pedra da lua" required>
+              </label>
+              <label>
+                <span>Valor</span>
+                <input id="itemValueInput" type="text" maxlength="160" placeholder="Ex.: 250kk" required>
+              </label>
+              <button id="addItemButton" class="button button-primary" type="submit">Adicionar</button>
+            </form>
+          </section>
+
+          <section class="items-section" aria-labelledby="itemsTitle">
+            <div class="items-toolbar">
+              <div>
+                <p class="eyebrow">Registros</p>
+                <h2 id="itemsTitle">Itens do assunto</h2>
+              </div>
+              <label class="search-field item-search">
+                <span aria-hidden="true">⌕</span>
+                <span class="sr-only">Buscar itens</span>
+                <input id="itemSearchInput" type="search" placeholder="Buscar nome ou valor">
+              </label>
+            </div>
+
+            <div class="table-wrap">
+              <div class="items-head" aria-hidden="true">
+                <span>Nome do item</span>
+                <span>Valor</span>
+                <span>Ações</span>
+              </div>
+              <div id="itemsList" class="items-list"></div>
+            </div>
+
+            <div id="itemsEmpty" class="empty-state empty-state-compact" hidden>
+              <div class="empty-symbol" aria-hidden="true">·</div>
+              <h3 id="itemsEmptyTitle">Nenhum item neste assunto</h3>
+              <p id="itemsEmptyText" class="muted">Use o formulário acima para adicionar o primeiro.</p>
+            </div>
+          </section>
+        </div>
+      </section>
+    </div>
+
+    <div id="txtWorkspace" class="workspace workspace-view txt-workspace" role="tabpanel" aria-labelledby="txtTab" hidden>
+      <aside class="sidebar txt-sidebar" aria-label="Tabelas TXT">
+        <div class="sidebar-heading">
+          <div>
+            <p class="eyebrow">Arquivos locais</p>
+            <h2>Contas TXT</h2>
+          </div>
+          <span id="txtSourceCount" class="count-pill">0</span>
+        </div>
+
+        <p class="sidebar-note">As tabelas desta área são enviadas pelo painel Python do seu computador.</p>
+
+        <div id="txtSourceList" class="subject-list txt-source-list"></div>
+        <div id="txtSourceEmpty" class="sidebar-empty" hidden>
+          <p>Nenhum arquivo disponível.</p>
+          <small>Importe um TXT pelo painel local.</small>
+        </div>
+      </aside>
+
+      <section class="content-panel txt-content-panel">
+        <div id="noTxtSourceView" class="empty-state">
+          <div class="empty-symbol empty-symbol-file" aria-hidden="true">TXT</div>
+          <p class="eyebrow">Tabelas importadas</p>
+          <h1>Selecione um arquivo TXT</h1>
+          <p class="muted">Escolha uma tabela ao lado para visualizar suas contas, senhas e marcações.</p>
+        </div>
+
+        <div id="txtSourceView" class="txt-source-view" hidden>
+          <div class="content-header txt-content-header">
+            <div>
+              <p class="eyebrow">Tabela atual</p>
+              <div class="title-row txt-title-row">
+                <h1 id="activeTxtSourceName">—</h1>
+                <span id="txtStatusBadge" class="status-badge txt-status-badge" data-state="loading">
+                  <span class="status-dot" aria-hidden="true"></span>
+                  <span>Carregando</span>
+                </span>
+              </div>
+              <p id="txtSourceMeta" class="muted txt-source-meta">Aguardando informações do arquivo.</p>
+              <p class="txt-row-summary"><strong id="txtRowCount">0</strong> <span id="txtRowCountLabel">linhas disponíveis</span></p>
+            </div>
+            <div class="content-actions txt-content-actions">
+              <button id="manageTxtColumnsButton" class="button button-secondary" type="button">Gerenciar colunas</button>
+              <button id="refreshTxtButton" class="button button-secondary" type="button">Atualizar</button>
+            </div>
+          </div>
+
+          <section class="txt-table-card" aria-label="Dados do arquivo TXT">
+            <div class="txt-table-intro">
+              <div>
+                <p class="eyebrow">Registros</p>
+                <h2>Contas importadas</h2>
+              </div>
+              <p class="muted">As alterações feitas nas células e caixas de seleção são salvas no painel.</p>
+            </div>
+
+            <div class="txt-search-bar" role="search" aria-label="Pesquisar contas importadas">
+              <label class="txt-search-field" for="txtSearchInput">
+                <span class="sr-only">Pesquisar por login ou senha</span>
+                <input id="txtSearchInput" type="search" maxlength="160"
+                  placeholder="Pesquisar login ou senha…" autocomplete="off" spellcheck="false">
+              </label>
+              <button id="clearTxtSearchButton" class="button button-ghost button-small" type="button" hidden>Limpar</button>
+              <span id="txtSearchStatus" class="txt-search-status muted" aria-live="polite">Pesquisa em todas as linhas importadas.</span>
+            </div>
+
+            <div class="txt-table-scroll" tabindex="0" aria-label="Tabela com rolagem horizontal">
+              <table class="txt-table">
+                <thead id="txtTableHead"></thead>
+                <tbody id="txtTableBody"></tbody>
+              </table>
+            </div>
+
+            <div id="txtRowsEmpty" class="empty-state empty-state-compact txt-rows-empty" hidden>
+              <div class="empty-symbol" aria-hidden="true">·</div>
+              <h3 id="txtRowsEmptyTitle">Nenhuma linha nesta tabela</h3>
+              <p id="txtRowsEmptyText" class="muted">O próximo envio feito pelo painel local aparecerá aqui.</p>
+            </div>
+
+            <footer class="txt-pagination" aria-label="Paginação da tabela">
+              <button id="txtPrevPageButton" class="button button-secondary button-small" type="button">Anterior</button>
+              <span id="txtPageLabel" class="txt-page-label">Página 1</span>
+              <button id="txtNextPageButton" class="button button-secondary button-small" type="button">Próxima</button>
+            </footer>
+          </section>
+        </div>
+      </section>
+    </div>
+
+    <div id="infoWorkspace" class="workspace workspace-view info-workspace" role="tabpanel" aria-labelledby="infoTab" hidden>
+      <aside class="sidebar info-sidebar" aria-label="Assuntos da página Info">
+        <div class="sidebar-heading">
+          <div>
+            <p class="eyebrow">Conhecimento</p>
+            <h2>Info</h2>
+          </div>
+          <span id="infoTopicCount" class="count-pill">0</span>
+        </div>
+
+        <form id="infoTopicForm" class="quick-form" autocomplete="off">
+          <label class="sr-only" for="infoTopicNameInput">Nome do novo assunto principal</label>
+          <input id="infoTopicNameInput" type="text" maxlength="120" placeholder="Novo assunto" required>
+          <button class="icon-button" type="submit" aria-label="Adicionar assunto principal" title="Adicionar assunto principal">+</button>
+        </form>
+
+        <label class="search-field sidebar-search">
+          <span aria-hidden="true">⌕</span>
+          <span class="sr-only">Filtrar assuntos da página Info</span>
+          <input id="infoTopicSearchInput" type="search" maxlength="120" placeholder="Filtrar assuntos">
+        </label>
+
+        <p class="sidebar-note info-sidebar-note">Use o botão <strong>+</strong> de um assunto para criar um filho.</p>
+
+        <nav id="infoTopicList" class="subject-list info-topic-list" aria-label="Assuntos e assuntos filhos"></nav>
+        <div id="infoTopicEmpty" class="sidebar-empty" hidden>
+          <p>Nenhum assunto ainda.</p>
+          <small>Crie o primeiro acima.</small>
+        </div>
+      </aside>
+
+      <section class="content-panel info-content-panel">
+        <div id="noInfoTopicView" class="empty-state">
+          <div class="empty-symbol" aria-hidden="true">i</div>
+          <p class="eyebrow">Informações organizadas</p>
+          <h1>Crie ou selecione um assunto</h1>
+          <p class="muted">Os assuntos podem receber registros e também assuntos filhos.</p>
+          <button id="focusInfoTopicButton" class="button button-primary" type="button">Criar assunto</button>
+        </div>
+
+        <div id="infoTopicView" hidden>
+          <div class="content-header info-content-header">
+            <div>
+              <p class="eyebrow">Assunto atual</p>
+              <div class="title-row">
+                <h1 id="activeInfoTopicName">—</h1>
+                <button id="renameInfoTopicButton" class="text-button" type="button">Renomear</button>
+              </div>
+              <p id="infoTopicPath" class="muted info-topic-path">Assunto principal</p>
+              <p class="muted"><span id="infoEntryCount">0</span> <span id="infoEntryCountLabel">registros</span> salvos</p>
+            </div>
+            <div class="content-actions info-content-actions">
+              <button id="addInfoChildButton" class="button button-secondary" type="button">Adicionar assunto filho</button>
+              <button id="refreshInfoButton" class="button button-secondary" type="button">Atualizar</button>
+              <button id="deleteInfoTopicButton" class="button button-danger-soft" type="button">Excluir assunto</button>
+            </div>
+          </div>
+
+          <section class="add-card info-add-card" aria-labelledby="addInfoEntryTitle">
+            <div class="add-card-copy">
+              <p class="eyebrow">Novo registro</p>
+              <h2 id="addInfoEntryTitle">Adicionar informação</h2>
+            </div>
+            <form id="infoEntryForm" class="info-entry-form" autocomplete="off">
+              <label>
+                <span>Título</span>
+                <input id="infoEntryTitleInput" type="text" maxlength="160" placeholder="Ex.: Acesso ao servidor" required>
+              </label>
+              <label>
+                <span>Conteúdo</span>
+                <textarea id="infoEntryContentInput" maxlength="20000" rows="4" placeholder="Digite a informação…"></textarea>
+              </label>
+              <button id="addInfoEntryButton" class="button button-primary" type="submit">Adicionar</button>
+            </form>
+          </section>
+
+          <section class="items-section info-entries-section" aria-labelledby="infoEntriesTitle">
+            <div class="items-toolbar">
+              <div>
+                <p class="eyebrow">Registros</p>
+                <h2 id="infoEntriesTitle">Informações do assunto</h2>
+              </div>
+              <label class="search-field item-search">
+                <span aria-hidden="true">⌕</span>
+                <span class="sr-only">Buscar nas informações</span>
+                <input id="infoEntrySearchInput" type="search" maxlength="160" placeholder="Buscar título ou conteúdo">
+              </label>
+            </div>
+
+            <div class="info-entries-wrap">
+              <div class="info-entries-head" aria-hidden="true">
+                <span>Título</span>
+                <span>Conteúdo</span>
+                <span>Ações</span>
+              </div>
+              <div id="infoEntriesList" class="info-entries-list"></div>
+            </div>
+
+            <div id="infoEntriesEmpty" class="empty-state empty-state-compact" hidden>
+              <div class="empty-symbol" aria-hidden="true">·</div>
+              <h3 id="infoEntriesEmptyTitle">Nenhuma informação neste assunto</h3>
+              <p id="infoEntriesEmptyText" class="muted">Use o formulário acima para adicionar a primeira.</p>
+            </div>
+          </section>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <div id="txtColumnsModal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="txtColumnsModalTitle" hidden>
+    <section class="modal-card txt-columns-modal-card">
+      <header class="modal-header">
+        <div>
+          <p class="eyebrow">Estrutura da tabela</p>
+          <h2 id="txtColumnsModalTitle">Gerenciar colunas</h2>
+        </div>
+        <button id="closeTxtColumnsButton" class="modal-close-button" type="button" aria-label="Fechar janela">×</button>
+      </header>
+
+      <p class="muted modal-description">Login e Senha permanecem fixos nas duas primeiras posições. Arraste as colunas adicionais ou use os botões de seta para mudar a ordem.</p>
+
+      <div id="txtColumnsList" class="txt-columns-list" aria-live="polite"></div>
+
+      <form id="txtColumnForm" class="txt-column-form" autocomplete="off">
+        <label>
+          <span>Nome da coluna</span>
+          <input id="txtColumnNameInput" type="text" maxlength="80" placeholder="Ex.: E-mail" required>
+        </label>
+        <label>
+          <span>Tipo</span>
+          <select id="txtColumnTypeInput" required>
+            <option value="text">Texto</option>
+            <option value="check">Caixa de seleção</option>
+          </select>
+        </label>
+        <button class="button button-secondary txt-add-column-button" type="submit">Adicionar coluna</button>
+      </form>
+
+      <footer class="modal-actions">
+        <button id="cancelTxtColumnsButton" class="button button-ghost" type="button">Cancelar</button>
+        <button id="saveTxtColumnsButton" class="button button-primary" type="button">Salvar colunas</button>
+      </footer>
+    </section>
+  </div>
+
+  <div id="toastRegion" class="toast-region" aria-live="polite" aria-atomic="true"></div>
+</body>
+</html>
