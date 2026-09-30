@@ -9,6 +9,7 @@
   const ACTIVE_SUBJECT_KEY = "painel_active_subject";
   const ACTIVE_TXT_SOURCE_KEY = "painel_active_txt_source";
   const ACTIVE_WORKSPACE_KEY = "painel_active_workspace";
+  const TXT_HIDDEN_ROWS_KEY = "painel_txt_hidden_rows_v1:";
   const REALTIME_CHANNEL = "painel_compartilhado_v2";
   const TXT_PAGE_SIZE = 50;
   const TXT_MAX_COLUMNS = 24;
@@ -43,6 +44,8 @@
     txtRowsEmptyTitle: $("txtRowsEmptyTitle"), txtRowsEmptyText: $("txtRowsEmptyText"),
     txtSearchInput: $("txtSearchInput"), clearTxtSearchButton: $("clearTxtSearchButton"),
     txtSearchStatus: $("txtSearchStatus"), txtRowCountLabel: $("txtRowCountLabel"),
+    txtVisibilityControls: $("txtVisibilityControls"), txtVisibilityStatus: $("txtVisibilityStatus"),
+    toggleTxtHiddenRowsButton: $("toggleTxtHiddenRowsButton"),
     txtPrevPageButton: $("txtPrevPageButton"), txtNextPageButton: $("txtNextPageButton"),
     txtPageLabel: $("txtPageLabel"), txtColumnsModal: $("txtColumnsModal"),
     txtColumnsModalTitle: $("txtColumnsModalTitle"), txtColumnsList: $("txtColumnsList"),
@@ -75,6 +78,7 @@
   let txtColumnExpectedColumns = [];
   let txtColumnsSaving = false;
   let txtRowDeleting = false;
+  let txtShowHiddenRows = false;
   let draggedTxtColumnId = "";
   let txtEditRevision = 0;
   let txtSearchTerm = "";
@@ -317,6 +321,7 @@
       txtStates = new Map();
       txtSourcesLoaded = false;
       txtSourcesRequestId += 1;
+      txtShowHiddenRows = false;
       resetTxtSearch();
       window.PainelInfo?.reset();
       elements.passwordInput.value = "";
@@ -866,6 +871,7 @@
       persistActiveTxtSource();
     }
     if (sourceBeforeLoad !== activeTxtSourceId) resetTxtSearch();
+    if (sourceBeforeLoad !== activeTxtSourceId) txtShowHiddenRows = false;
     renderTxtSources();
     renderActiveTxtSource();
     if (loadRows) await loadTxtRows();
@@ -996,6 +1002,7 @@
     if (blockTxtNavigationWhileSaving()) return;
     resetTxtSearch();
     activeTxtSourceId = sourceId;
+    txtShowHiddenRows = false;
     txtRows = [];
     txtStates = new Map();
     txtTotalRows = 0;
@@ -1248,9 +1255,50 @@
     return cell;
   }
 
+  function txtRowVisibilityKey(row) {
+    return row.row_key ? "key:" + row.row_key : "id:" + row.id;
+  }
+
+  function readHiddenTxtRows(sourceId) {
+    if (!sourceId) return new Set();
+    try {
+      const stored = JSON.parse(localStorage.getItem(TXT_HIDDEN_ROWS_KEY + sourceId) || "[]");
+      return new Set(Array.isArray(stored) ? stored.filter((key) => typeof key === "string") : []);
+    } catch (_error) {
+      return new Set();
+    }
+  }
+
+  function toggleTxtRowVisibility(row) {
+    if (blockTxtNavigationWhileSaving()) return;
+    if (row.source_id !== activeTxtSourceId || !txtRows.some((entry) => entry.id === row.id)) return;
+    const hiddenRows = readHiddenTxtRows(row.source_id);
+    const key = txtRowVisibilityKey(row);
+    const restoring = hiddenRows.has(key);
+    if (restoring) hiddenRows.delete(key);
+    else hiddenRows.add(key);
+    try {
+      if (hiddenRows.size) localStorage.setItem(TXT_HIDDEN_ROWS_KEY + row.source_id, JSON.stringify([...hiddenRows]));
+      else localStorage.removeItem(TXT_HIDDEN_ROWS_KEY + row.source_id);
+    } catch (_error) {
+      showToast("Não foi possível salvar a visibilidade neste navegador. Verifique o armazenamento local.", true);
+      return;
+    }
+    renderTxtTable();
+    showToast(restoring ? "Linha restaurada." : "Linha oculta neste navegador.");
+  }
+
   function renderTxtTable() {
     const source = getActiveTxtSource();
     const columns = normalizeTxtColumns(source?.columns);
+    const hiddenRows = readHiddenTxtRows(source?.id);
+    const hiddenOnPage = txtRows.filter((row) => hiddenRows.has(txtRowVisibilityKey(row))).length;
+    const displayedRows = txtShowHiddenRows ? txtRows : txtRows.filter((row) => !hiddenRows.has(txtRowVisibilityKey(row)));
+    elements.txtVisibilityControls.hidden = !source || hiddenRows.size === 0;
+    elements.toggleTxtHiddenRowsButton.textContent = txtShowHiddenRows ? "Esconder linhas ocultas" : "Mostrar linhas ocultas";
+    elements.toggleTxtHiddenRowsButton.setAttribute("aria-pressed", String(txtShowHiddenRows));
+    elements.txtVisibilityStatus.textContent = "Nesta página: " + (txtRows.length - hiddenOnPage) +
+      " visíveis · " + hiddenOnPage + " ocultas neste navegador";
     elements.txtTableHead.replaceChildren();
     elements.txtTableBody.replaceChildren();
     const headRow = document.createElement("tr");
@@ -1260,28 +1308,35 @@
     actionsHeader.className = "txt-actions-column";
     headRow.append(actionsHeader);
     elements.txtTableHead.append(headRow);
-    for (const row of txtRows) {
+    for (const row of displayedRows) {
       const tableRow = document.createElement("tr");
       tableRow.dataset.rowKey = row.row_key || "";
+      const locallyHidden = hiddenRows.has(txtRowVisibilityKey(row));
+      if (locallyHidden) {
+        tableRow.classList.add("is-locally-hidden");
+        tableRow.title = "Linha oculta neste navegador. Use Restaurar para voltar a exibi-la.";
+      }
       const values = effectiveTxtValues(row, columns);
       tableRow.append(createAccountCell(row), createPasswordCell(row));
       for (const column of columns) tableRow.append(createDynamicTxtCell(row, column, values[column.id], tableRow));
       const actions = document.createElement("td");
       actions.className = "txt-actions-column";
-      const deleteButton = document.createElement("button");
-      deleteButton.type = "button";
-      deleteButton.className = "button button-danger-soft button-small txt-delete-button";
-      deleteButton.textContent = "Excluir";
-      deleteButton.setAttribute("aria-label", "Excluir linha " + row.line_number + " deste assunto");
-      deleteButton.disabled = txtRowDeleting;
-      deleteButton.addEventListener("click", () => void deleteTxtRow(row, deleteButton, tableRow));
-      actions.append(deleteButton);
+      const visibilityButton = document.createElement("button");
+      visibilityButton.type = "button";
+      visibilityButton.className = "button button-secondary button-small txt-visibility-button";
+      visibilityButton.textContent = locallyHidden ? "Restaurar" : "Ocultar";
+      visibilityButton.setAttribute("aria-label", visibilityButton.textContent + " linha " + row.line_number + " deste assunto");
+      visibilityButton.addEventListener("click", () => toggleTxtRowVisibility(row));
+      actions.append(visibilityButton);
       tableRow.append(actions);
       elements.txtTableBody.append(tableRow);
     }
-    const hasRows = txtRows.length > 0;
+    const hasRows = displayedRows.length > 0;
     elements.txtRowsEmpty.hidden = hasRows;
-    if (!hasRows && txtSearchTerm) {
+    if (!hasRows && hiddenOnPage > 0) {
+      elements.txtRowsEmptyTitle.textContent = "As linhas desta página estão ocultas";
+      elements.txtRowsEmptyText.textContent = "Use Mostrar linhas ocultas para restaurá-las ou avance para outra página.";
+    } else if (!hasRows && txtSearchTerm) {
       elements.txtRowsEmptyTitle.textContent = "Nenhum login ou senha encontrado";
       elements.txtRowsEmptyText.textContent = "Tente pesquisar outro texto ou limpe o campo de pesquisa.";
     } else {
@@ -1919,6 +1974,11 @@
   elements.focusSubjectButton.addEventListener("click", () => elements.subjectNameInput.focus());
   elements.refreshTxtButton.addEventListener("click", refreshTxt);
   elements.manageTxtColumnsButton.addEventListener("click", openTxtColumnsModal);
+  elements.toggleTxtHiddenRowsButton.addEventListener("click", () => {
+    if (blockTxtNavigationWhileSaving()) return;
+    txtShowHiddenRows = !txtShowHiddenRows;
+    renderTxtTable();
+  });
   elements.txtSearchInput.addEventListener("input", () => {
     const rawSearch = String(elements.txtSearchInput.value || "").slice(0, 160);
     if (elements.txtSearchInput.value !== rawSearch) elements.txtSearchInput.value = rawSearch;
