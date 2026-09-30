@@ -284,7 +284,7 @@
                 <p class="eyebrow">Registros</p>
                 <h2>Contas importadas</h2>
               </div>
-              <p class="muted">As alterações são salvas no painel. Use Excluir para apagar uma linha deste assunto.</p>
+              <p class="muted">Use Ocultar para esconder linhas neste navegador. Você pode restaurá-las quando quiser.</p>
             </div>
 
             <div class="txt-search-bar" role="search" aria-label="Pesquisar contas importadas">
@@ -295,6 +295,11 @@
               </label>
               <button id="clearTxtSearchButton" class="button button-ghost button-small" type="button" hidden>Limpar</button>
               <span id="txtSearchStatus" class="txt-search-status muted" aria-live="polite">Pesquisa em todas as linhas importadas.</span>
+            </div>
+
+            <div id="txtVisibilityControls" class="txt-visibility-bar" hidden>
+              <span id="txtVisibilityStatus" class="muted" aria-live="polite"></span>
+              <button id="toggleTxtHiddenRowsButton" class="button button-ghost button-small" type="button" aria-pressed="false">Mostrar linhas ocultas</button>
             </div>
 
             <div class="txt-table-scroll" tabindex="0" aria-label="Tabela com rolagem horizontal">
