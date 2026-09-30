@@ -74,6 +74,7 @@
   let txtColumnSourceId = "";
   let txtColumnExpectedColumns = [];
   let txtColumnsSaving = false;
+  let txtRowDeleting = false;
   let draggedTxtColumnId = "";
   let txtEditRevision = 0;
   let txtSearchTerm = "";
@@ -120,6 +121,15 @@
     }
     if (lower.includes("set_txt_source_columns")) {
       return "Execute a migration 202608050004_txt_column_rpc.sql no Supabase para salvar e ordenar colunas.";
+    }
+    if (lower.includes("delete_txt_row") && (lower.includes("schema cache") || lower.includes("does not exist"))) {
+      return "Execute a migration 202609300007_txt_row_delete.sql no Supabase para excluir linhas.";
+    }
+    if (lower.includes("txt row is no longer active")) {
+      return "Esta linha mudou ou já foi excluída. Atualize a tabela antes de tentar novamente.";
+    }
+    if (lower.includes("txt source is importing")) {
+      return "Aguarde a importação deste assunto terminar antes de excluir linhas.";
     }
     if (lower.includes("search_active_txt_rows")) {
       return "Execute a migration 202608050005_txt_search.sql no Supabase para pesquisar logins e senhas.";
@@ -759,7 +769,7 @@
   }
 
   function txtEditingIsBusy() {
-    return txtColumnsSaving || txtSaveQueues.size > 0 || hasDirtyTxtRows();
+    return txtRowDeleting || txtColumnsSaving || txtSaveQueues.size > 0 || hasDirtyTxtRows();
   }
 
   function updateTxtSearchUi(state = "idle") {
@@ -1246,6 +1256,9 @@
     const headRow = document.createElement("tr");
     headRow.append(createHeaderCell("Login"), createHeaderCell("Senha"));
     for (const column of columns) headRow.append(createHeaderCell(column.label, column.type, column.id));
+    const actionsHeader = createHeaderCell("Ações", "actions");
+    actionsHeader.className = "txt-actions-column";
+    headRow.append(actionsHeader);
     elements.txtTableHead.append(headRow);
     for (const row of txtRows) {
       const tableRow = document.createElement("tr");
@@ -1253,6 +1266,17 @@
       const values = effectiveTxtValues(row, columns);
       tableRow.append(createAccountCell(row), createPasswordCell(row));
       for (const column of columns) tableRow.append(createDynamicTxtCell(row, column, values[column.id], tableRow));
+      const actions = document.createElement("td");
+      actions.className = "txt-actions-column";
+      const deleteButton = document.createElement("button");
+      deleteButton.type = "button";
+      deleteButton.className = "button button-danger-soft button-small txt-delete-button";
+      deleteButton.textContent = "Excluir";
+      deleteButton.setAttribute("aria-label", "Excluir linha " + row.line_number + " deste assunto");
+      deleteButton.disabled = txtRowDeleting;
+      deleteButton.addEventListener("click", () => void deleteTxtRow(row, deleteButton, tableRow));
+      actions.append(deleteButton);
+      tableRow.append(actions);
       elements.txtTableBody.append(tableRow);
     }
     const hasRows = txtRows.length > 0;
@@ -1294,6 +1318,7 @@
   }
 
   async function saveTxtCell(row, column, value, control, tableRow) {
+    if (txtRowDeleting) return;
     if (!row.row_key) {
       showToast("Esta linha não possui row_key. Execute a terceira migration e importe novamente.", true);
       return;
@@ -1390,6 +1415,10 @@
   }
 
   function blockTxtNavigationWhileSaving() {
+    if (txtRowDeleting) {
+      showToast("Aguarde a exclusão da linha terminar.");
+      return true;
+    }
     if (txtColumnsSaving) {
       showToast("Aguarde o salvamento das colunas terminar.", true);
       return true;
@@ -1404,6 +1433,65 @@
       ? "Aguarde a alteração terminar de salvar."
       : "Finalize a célula que está sendo editada antes de continuar.");
     return true;
+  }
+
+  async function deleteTxtRow(row, button, tableRow) {
+    if (blockTxtNavigationWhileSaving()) return;
+    const source = getActiveTxtSource();
+    if (!source || row.source_id !== source.id || !txtRows.some((entry) => entry.id === row.id)) return;
+    if (!window.confirm("Excluir a linha " + row.line_number + " (" + row.f1 + ") do assunto “" +
+      source.name + "”?\n\nSe a conta continuar no arquivo TXT, uma nova importação poderá adicioná-la novamente.")) return;
+
+    txtRowDeleting = true;
+    txtEditRevision += 1;
+    txtRequestId += 1;
+    const controls = [...elements.txtTableBody.querySelectorAll("input, button")]
+      .map((control) => ({ control, disabled: control.disabled }));
+    for (const { control } of controls) control.disabled = true;
+    tableRow.classList.add("is-saving");
+    setButtonBusy(button, true, "Excluindo…");
+    setSync("loading", "Excluindo linha");
+    let deleted = false;
+    try {
+      const { data, error } = await client.rpc("delete_txt_row", {
+        p_source_id: source.id,
+        p_row_id: row.id,
+        p_import_id: row.import_id
+      });
+      if (error) throw error;
+      if (data?.deleted !== true) throw new Error("O Supabase não confirmou a exclusão da linha.");
+      deleted = true;
+      txtEditRevision += 1;
+      txtRows = txtRows.filter((entry) => entry.id !== row.id);
+      txtStates.delete(row.row_key);
+      txtTotalRows = Math.max(0, txtTotalRows - 1);
+      const currentSource = txtSources.find((entry) => entry.id === source.id);
+      if (currentSource) currentSource.row_count = data.row_count;
+      txtPage = Math.min(txtPage, Math.max(0, Math.ceil(txtTotalRows / TXT_PAGE_SIZE) - 1));
+    } catch (error) {
+      setSync("error", "Erro ao excluir");
+      showToast(readableError(error), true);
+    } finally {
+      txtRowDeleting = false;
+      tableRow.classList.remove("is-saving");
+      setButtonBusy(button, false);
+      for (const { control, disabled } of controls) control.disabled = disabled;
+    }
+
+    if (deleted) {
+      renderActiveTxtSource();
+      renderTxtTable();
+      showToast("Linha excluída deste assunto.");
+      try {
+        await loadTxtRows();
+        setSync("online", "Sincronizado");
+      } catch (error) {
+        setSync("error", "Atualização pendente");
+        showToast("A linha foi excluída, mas a tabela não pôde ser atualizada. " + readableError(error), true);
+      }
+    }
+    if (txtReloadPending) scheduleTxtRealtime(txtSourcesReloadPending);
+    runPendingTxtSearchWhenReady();
   }
 
   async function refreshTxt() {
@@ -1714,7 +1802,7 @@
   async function flushTxtRealtime() {
     txtRealtimeTimer = null;
     if (!txtReloadPending || activeWorkspace !== "txt") return;
-    if (txtColumnsSaving || txtSaveQueues.size || hasDirtyTxtRows() || !elements.txtColumnsModal.hidden) {
+    if (txtRowDeleting || txtColumnsSaving || txtSaveQueues.size || hasDirtyTxtRows() || !elements.txtColumnsModal.hidden) {
       setSync("loading", "Alterações pendentes");
       txtRealtimeTimer = window.setTimeout(flushTxtRealtime, 500);
       return;
@@ -1881,6 +1969,11 @@
   window.addEventListener("beforeunload", (event) => {
     const infoPending = window.PainelInfo?.hasPendingChanges();
     if (infoPending) {
+      event.preventDefault();
+      event.returnValue = "";
+      return;
+    }
+    if (txtRowDeleting) {
       event.preventDefault();
       event.returnValue = "";
       return;
