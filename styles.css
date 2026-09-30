@@ -1441,9 +1441,9 @@ button:focus-visible {
 }
 
 .txt-table .txt-actions-column {
-  min-width: 130px;
-  width: 130px;
-  text-align: right;
+  min-width: 100px;
+  width: 100px;
+  text-align: center;
 }
 
 .txt-row-number {
