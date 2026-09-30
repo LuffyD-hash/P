@@ -66,6 +66,7 @@
   let txtStates = new Map();
   let activeTxtSourceId = localStorage.getItem(ACTIVE_TXT_SOURCE_KEY) || "";
   let txtSourcesLoaded = false;
+  let txtSourcesRequestId = 0;
   let txtPage = 0;
   let txtTotalRows = 0;
   let txtRequestId = 0;
@@ -305,6 +306,7 @@
       txtRows = [];
       txtStates = new Map();
       txtSourcesLoaded = false;
+      txtSourcesRequestId += 1;
       resetTxtSearch();
       window.PainelInfo?.reset();
       elements.passwordInput.value = "";
@@ -833,11 +835,20 @@
   }
 
   async function loadTxtSources({ loadRows = false } = {}) {
+    const requestId = ++txtSourcesRequestId;
+    const editRevisionAtRequest = txtEditRevision;
     const sourceBeforeLoad = activeTxtSourceId;
     const { data, error } = await client.from(TABLE_TXT_SOURCES)
       .select("id,source_key,name,file_name,position,status,active_import_id,row_count,columns,last_error,imported_at,updated_at")
       .order("position", { ascending: true }).order("name", { ascending: true });
+    if (requestId !== txtSourcesRequestId) return;
     if (error) throw error;
+    // A query started before editing must not reset the selected source or
+    // replace column definitions while the editor owns that source.
+    if (editRevisionAtRequest !== txtEditRevision || txtEditingIsBusy() || !elements.txtColumnsModal.hidden) {
+      scheduleTxtRealtime(true);
+      return;
+    }
     txtSources = (data || []).map((source) => ({ ...source, columns: normalizeTxtColumns(source.columns) }));
     txtSourcesLoaded = true;
     if (!txtSources.some((source) => source.id === activeTxtSourceId)) {
@@ -1652,7 +1663,11 @@
       if (savedColumns.length !== cleaned.length) {
         throw new Error("O Supabase retornou uma estrutura de colunas incompleta.");
       }
-      source.columns = savedColumns;
+      // Fetches can finish while the RPC is pending. Commit to the current
+      // source record by ID, and invalidate snapshots taken before this save.
+      txtEditRevision += 1;
+      const currentSource = txtSources.find((entry) => entry.id === source.id);
+      if (currentSource) currentSource.columns = savedColumns;
       txtColumnExpectedColumns = savedColumns.map((column) => ({ ...column }));
       setTxtColumnsModalBusy(false);
       closeTxtColumnsModal();
